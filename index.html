@@ -180,6 +180,7 @@ td.cellover{background:var(--crit-wash)}
 .alloc tfoot input.fcell{width:100%;min-width:84px;padding:2px 5px;border:1px solid transparent;border-radius:3px;background:transparent;font-family:var(--mono);font-size:11px;text-align:right;color:var(--ink)}
 .alloc tfoot input.fcell:hover{border-color:var(--line-2);background:var(--panel)}
 .alloc tfoot input.fcell:focus{border-color:var(--focus);background:var(--panel)}
+.alloc tfoot input.fcell.real{font-weight:600}
 .banner{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:10px;margin-top:12px;padding:10px 14px;border-radius:6px;background:var(--panel-2);border:1px solid var(--line-2);font-size:13px}
 .banner.err{background:var(--crit-wash);border-color:var(--crit)}
 .banner-actions{display:flex;gap:8px;flex-wrap:wrap}
@@ -311,10 +312,10 @@ function allocOf(pid,i,fid){ const a=S.alloc[pid]; return (a&&a.m&&a.m[i]&&+a.m[
 function monthlyOf(fid,kind,i){ const d=S.monthly[fid]; const v=d&&d[kind]&&d[kind][i]; return (v==null||v==='')?null:+v; }
 function plannedCalc(fid,i){ let t=0; for(const p of peopleList()){ if(p.active===false) continue; t+= (+p.integralCost||0)*allocOf(p.id,i,fid); } return t; }
 // manual values typed in the fund rows of the allocation grid: key present = typed (null = left blank, counts as 0)
-function isManual(fid,i){ const d=S.monthly[fid]; return !!(d&&d.manual&&Object.prototype.hasOwnProperty.call(d.manual,String(i))); }
-function manualOf(fid,i){ const d=S.monthly[fid]; const v=d.manual[String(i)]; return (v==null||v==='')?null:+v; }
-function override(fid,i){ if(isManual(fid,i)){ const v=manualOf(fid,i); return v==null?0:v; } const d=S.monthly[fid]; const v=d&&d.ajuste&&d.ajuste[i]; return (v==null||v==='')?null:+v; }
-function planned(fid,i){ const o=override(fid,i); return o==null?plannedCalc(fid,i):o; }
+// Planejado is always the automatic sum of the allocation grid.
+function planned(fid,i){ return plannedCalc(fid,i); }
+// Fund rows in the grid footer: realizado (cashflow) where typed, otherwise the automatic sum.
+function footerVal(fid,i){ const r=monthlyOf(fid,'realizado',i); return r==null?plannedCalc(fid,i):r; }
 function sumFunds(fn){ let t=0; for(const f of cfg().funds) t+=fn(f.id)||0; return t; }
 function toast(msg){ let t=document.querySelector('.toast'); if(!t){ t=document.createElement('div'); t.className='toast'; document.body.appendChild(t);} t.textContent=msg; clearTimeout(t._h); t._h=setTimeout(()=>t.remove(),2600); }
 function setStatus(cls,text){ const p=document.getElementById('status-pill'); p.className='pill '+cls; document.getElementById('status-text').textContent=text; }
@@ -684,15 +685,15 @@ function renderAlocacao(){
   }
   let foot='';
   let grand=0;
-  for(const f of c.funds){ let ft=0; foot+=`<tr class="f"><td class="sticky"><span class="sw" style="--fc:${FUND_COLORS[f.id]}"></span>${esc(f.name)}</td>${ms.map(m=>{const v=planned(f.id,m.i), calc=plannedCalc(f.id,m.i), ov=override(f.id,m.i)!=null, blank=isManual(f.id,m.i)&&manualOf(f.id,m.i)==null; ft+=v;
-      return `<td>${can?`<input class="fcell" id="adj-${f.id}-${m.i}" data-adj="${f.id}" data-m="${m.i}" data-ov="${ov?1:0}" value="${blank?'':fmtNum.format(v)}" inputmode="decimal" title="${ov?'Calculado pela alocação: '+money(calc)+' · digite = para voltar ao calculado':'Calculado pela alocação'}" aria-label="${esc(f.name)} ${m.label}">`:money0(v)}</td>`;}).join('')}<td id="ft-${f.id}">${money0(ft)}</td></tr>`; grand+=ft; }
-  foot+=`<tr class="sum"><td class="sticky">Planejado do squad</td>${ms.map(m=>`<td id="sq-${m.i}">${money0(sumFunds(id=>planned(id,m.i)))}</td>`).join('')}<td id="sq-total">${money0(grand)}</td></tr>`;
+  for(const f of c.funds){ let ft=0; foot+=`<tr class="f"><td class="sticky"><span class="sw" style="--fc:${FUND_COLORS[f.id]}"></span>${esc(f.name)}</td>${ms.map(m=>{const v=footerVal(f.id,m.i), calc=plannedCalc(f.id,m.i), ov=monthlyOf(f.id,'realizado',m.i)!=null; ft+=v;
+      return `<td>${can?`<input class="fcell${ov?' real':''}" id="adj-${f.id}-${m.i}" data-adj="${f.id}" data-m="${m.i}" data-ov="${ov?1:0}" value="${fmtNum.format(v)}" inputmode="decimal" title="${ov?'Realizado (cashflow) · soma da alocação: '+money(calc)+' · apague para voltar à soma automática':'Soma automática da alocação · digite o realizado do cashflow para substituir'}" aria-label="${esc(f.name)} ${m.label}">`:money0(v)}</td>`;}).join('')}<td id="ft-${f.id}">${money0(ft)}</td></tr>`; grand+=ft; }
+  foot+=`<tr class="sum"><td class="sticky">Total do squad</td>${ms.map(m=>`<td id="sq-${m.i}">${money0(sumFunds(id=>footerVal(id,m.i)))}</td>`).join('')}<td id="sq-total">${money0(grand)}</td></tr>`;
   foot+=`<tr class="f"><td class="sticky">Headcount alocado (FTE)</td>${ms.map(m=>{ let t=0; for(const p of ps){ if(p.active===false) continue; for(const f of c.funds) t+=allocOf(p.id,m.i,f.id);} return `<td id="hc-${m.i}">${frac(t)}</td>`;}).join('')}<td></td></tr>`;
   return `<section class="section" style="margin-top:0">
     <div class="section-head"><h2>Alocação por pessoa, fundo e mês</h2>
       <div class="legend" style="margin:0">${c.funds.map(f=>`<span><i style="background:${FUND_COLORS[f.id]}"></i>${esc(f.name)}</span>`).join('')}</div></div>
     <div class="tbl-wrap"><table class="alloc"><thead>${head}</thead><tbody>${body}</tbody><tfoot>${foot}</tfoot></table></div>
-    <p class="hint">Cada célula tem uma fração por fundo (ex.: 0,5 · 0,25 · 0,25). A soma da pessoa no mês deve ficar em até 1,0; acima disso a célula fica marcada. Aceita 0,5, 0.5 ou 50%. Custo do mês = custo integral × fração. No rodapé, as linhas de cada fundo são editáveis: o que você digitar (inclusive em branco) fica como está e vale no Resumo. Digite = para uma célula voltar ao valor calculado.</p>
+    <p class="hint">Cada célula tem uma fração por fundo (ex.: 0,5 · 0,25 · 0,25). A soma da pessoa no mês deve ficar em até 1,0; acima disso a célula fica marcada. Aceita 0,5, 0.5 ou 50%. Custo do mês = custo integral × fração. No rodapé, cada fundo mostra a soma automática da alocação do mês. Digite nessa célula o valor realizado do cashflow para o mês já fechado (ele aparece em negrito e alimenta o Realizado do Resumo); apague para voltar à soma automática.</p>
   </section>`;
 }
 
@@ -772,10 +773,10 @@ function refreshAlloc(){
   } } }
   for(const f of c.funds){ for(const m of ms){
     const inp=document.getElementById(`adj-${f.id}-${m.i}`); if(!inp) continue;
-    const ov=override(f.id,m.i)!=null; inp.dataset.ov=ov?1:0;
+    const ov=monthlyOf(f.id,'realizado',m.i)!=null; inp.dataset.ov=ov?1:0; inp.classList.toggle('real',ov);
     if(inp===fa) continue;
-    const blank=isManual(f.id,m.i)&&manualOf(f.id,m.i)==null; const s=blank?'':fmtNum.format(planned(f.id,m.i)); if(inp.value!==s) inp.value=s;
-    inp.title = ov?'Calculado pela alocação: '+money(plannedCalc(f.id,m.i))+' · digite = para voltar ao calculado':'Calculado pela alocação';
+    const s=fmtNum.format(footerVal(f.id,m.i)); if(inp.value!==s) inp.value=s;
+    inp.title = ov?'Realizado (cashflow) · soma da alocação: '+money(plannedCalc(f.id,m.i))+' · apague para voltar à soma automática':'Soma automática da alocação · digite o realizado do cashflow para substituir';
   } }
   liveTotals();
 }
@@ -800,9 +801,10 @@ function liveTotals(){
   for(const f of funds){ let ft=0;
     for(const m of ms){ const inp=document.getElementById(`adj-${f}-${m.i}`); let v;
       if(inp){ const typed=parseNum(inp.value); const focused=document.activeElement===inp;
-        if(focused || inp.dataset.ov==='1'){ v = typed==null ? 0 : typed; }
+        if(focused){ v = typed==null ? calc[f][m.i] : typed; }
+        else if(inp.dataset.ov==='1'){ v = typed==null ? calc[f][m.i] : typed; }
         else { v=calc[f][m.i]; inp.value=fmtNum.format(v); }
-      } else v=planned(f,m.i);
+      } else v=footerVal(f,m.i);
       ft+=v; sq[m.i]+=v; }
     const el=document.getElementById(`ft-${f}`); if(el) el.textContent=money0(ft); grand+=ft; }
   ms.forEach(m=>{ const el=document.getElementById(`sq-${m.i}`); if(el) el.textContent=money0(sq[m.i]); const h=document.getElementById(`hc-${m.i}`); if(h) h.textContent=frac(hc[m.i]); });
@@ -857,9 +859,10 @@ function bind(){
       if(t){ e.preventDefault(); t.focus(); }
     });
     inp.addEventListener('change',()=>{ const fid=inp.dataset.adj, i=String(inp.dataset.m);
-      const d=S.monthly[fid]||(S.monthly[fid]={previsto:{},realizado:{}}); d.manual=d.manual||{}; if(d.ajuste) delete d.ajuste[i];
-      if(inp.value.trim()==='='){ delete d.manual[i]; }                 // "=" returns the cell to the calculated value
-      else { const v=parseNum(inp.value); d.manual[i]= v==null ? null : Math.round(v*100)/100; }   // blank stays blank (counts as 0)
+      const d=S.monthly[fid]||(S.monthly[fid]={previsto:{},realizado:{}}); d.realizado=d.realizado||{}; delete d.manual; delete d.ajuste;
+      const v=parseNum(inp.value);
+      if(v==null || Math.abs(v-plannedCalc(fid,+i))<0.005) delete d.realizado[i];   // blank (or same as the sum) = automatic again
+      else d.realizado[i]=Math.round(v*100)/100;                                    // typed = realizado (cashflow)
       saveMonthly(fid); setTimeout(render,0); });
   });
   // people
